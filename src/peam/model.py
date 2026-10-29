@@ -37,17 +37,24 @@ def _sigmoid(x):
 
 class PatternExpertAdditiveModel:
     def __init__(self, n_groups: int = 5, grouping: str = "correlation",
-                 combiner: str = "logistic", calib: str = "sigmoid", random_state: int = 0):
+                 combiner: str = "logistic", calib: str = "sigmoid", random_state: int = 0,
+                 groups=None):
         self.n_groups = n_groups
         self.grouping = grouping
         self.combiner = combiner
         self.calib = calib
         self.random_state = random_state
+        # Optional explicit feature grouping (list of index arrays). When set, it
+        # is used directly and n_groups/grouping are ignored -- this is the
+        # "domain-assigned groups" path described in the README.
+        self.groups = groups
 
     # ------------------------------------------------------------------ fit
     def fit(self, X_tr, y_tr, X_val, y_val):
         X_tr, X_val = np.asarray(X_tr, float), np.asarray(X_val, float)
-        if self.grouping == "random":
+        if self.groups is not None:
+            self.groups_ = [np.asarray(g, int) for g in self.groups]
+        elif self.grouping == "random":
             self.groups_ = random_groups(X_tr.shape[1], self.n_groups, self.random_state)
         else:
             self.groups_ = correlation_groups(X_tr, self.n_groups, self.random_state)

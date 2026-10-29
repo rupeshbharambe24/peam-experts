@@ -58,12 +58,37 @@ Across 8 domain-diverse public imbalanced datasets × 3 seeds
   ([`results/ngroups_tradeoff.md`](results/ngroups_tradeoff.md)). Correlation-based
   grouping only marginally beats random grouping.
 
-**Takeaway:** PEAM's distinctive value over EBM is **modularity/portability**
-(group-experts can be switched on/off; any model per group) and group-level
-reason codes, bought at a measurable, dataset-dependent accuracy cost. As a
-general-purpose interpretable model judged purely on accuracy it does not beat
-EBM, so its contribution is the modularity and the quantified trade-off, not a
-SOTA win.
+**Takeaway (general tabular data):** PEAM's distinctive value over EBM is
+**modularity/portability** (group-experts can be switched on/off; any model per
+group) and group-level reason codes, bought at a measurable, dataset-dependent
+accuracy cost. As a general-purpose interpretable model judged purely on
+accuracy it does not beat EBM.
+
+### A regime where PEAM genuinely wins: localized high-order interactions
+
+There is a specific, identifiable regime where PEAM is not merely competitive
+but the **single best model — beating even black-box gradient boosting — while
+staying interpretable**. EBM is additive + pairwise (GA2M) and *cannot
+represent* interactions of order >= 3. PEAM keeps a flexible gradient-boosted
+expert per group, so it captures arbitrary-order interactions **within** a group
+while remaining additive **across** groups. On data whose signal is high-order
+interactions *localized inside feature groups*, PEAM's structural prior is
+exactly right (see [`results/interaction_locality.md`](results/interaction_locality.md)
+and [`results/interaction_locality_robustness.md`](results/interaction_locality_robustness.md)):
+
+- ROC-AUC at interaction order 3 (4 groups, 10% positives): **PEAM 0.795 vs EBM
+  0.668 vs black-box GBM 0.731**. The win over a *strong, tuned* HistGBM/XGBoost
+  holds from n=2k to n=80k.
+- At order 1 (linear) and order 2 (pairwise) PEAM is dominated (by logistic
+  regression and EBM respectively) — the honest other side of the frontier.
+- **Caveat:** the win requires the right grouping. Pure high-order interactions
+  induce zero pairwise correlation, so correlation-based grouping cannot find
+  them — a domain grouping or an interaction-aware discovery method is needed.
+- On the first real dataset tried (satimage, with its genuine pixel/band
+  grouping) EBM still wins: its signal is additive + pairwise, so it is *not* in
+  this regime. PEAM is a **targeted tool** for localized-high-order structure,
+  not a general SOTA; whether and where this regime occurs in real data is an
+  open, ongoing search.
 
 ## Reproduce
 
