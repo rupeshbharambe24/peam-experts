@@ -81,14 +81,38 @@ and [`results/interaction_locality_robustness.md`](results/interaction_locality_
   holds from n=2k to n=80k.
 - At order 1 (linear) and order 2 (pairwise) PEAM is dominated (by logistic
   regression and EBM respectively) — the honest other side of the frontier.
-- **Caveat:** the win requires the right grouping. Pure high-order interactions
-  induce zero pairwise correlation, so correlation-based grouping cannot find
-  them — a domain grouping or an interaction-aware discovery method is needed.
-- On the first real dataset tried (satimage, with its genuine pixel/band
-  grouping) EBM still wins: its signal is additive + pairwise, so it is *not* in
-  this regime. PEAM is a **targeted tool** for localized-high-order structure,
-  not a general SOTA; whether and where this regime occurs in real data is an
-  open, ongoing search.
+- At order 1 (linear) and order 2 (pairwise) PEAM is dominated (by logistic
+  regression and EBM respectively) — the honest other side of the frontier.
+- **Caveat:** the win requires a grouping that captures the interacting set.
+  Which grouping works is *structure-dependent*: correlation grouping fails when
+  the interacting features are mutually uncorrelated (the pure-product synthetic)
+  but succeeds when they are correlated (MADELON, below); univariate mutual
+  information fails on jointly-informative features (the MADELON trap).
+
+### Real-data hunt: where the regime actually occurs
+
+A four-dataset probe ([`results/real_data_hunt.md`](results/real_data_hunt.md),
+via `experiments/run_real_data_hunt.py`) maps out when the regime appears:
+
+| dataset | structure | outcome |
+|:--|:--|:--|
+| satimage | engineered, low-order | EBM wins (0.961 vs PEAM 0.948) — not in regime |
+| gas-drift | near-separable | everything ~0.99 — saturated, no headroom |
+| HIGGS | high-order but **delocalized** (cross-object masses) | per-object PEAM loses (0.608 vs EBM 0.674); adding the cross-object masses lifts EBM to 0.796 — the contrast case |
+| MADELON | high-order **and localized** (5 informative feats, mutually correlated) | **PEAM is the best interpretable model** |
+
+On **MADELON** (NIPS-2003 feature-selection benchmark), PEAM with correlation
+grouping is the best interpretable model and beats full-feature black boxes:
+ROC-AUC **0.90** vs EBM 0.80 and XGBoost 0.86 on full features; with shared
+feature selection PEAM **0.91 vs EBM 0.89**. Only a black-box + feature-selection
+pipeline (0.93) edges it — at the cost of interpretability and an extra stage.
+
+**Takeaway:** high-order interaction is *not sufficient* — it must be high-order
+**and localized within the grouping** (HIGGS has the former, not the latter).
+Where that holds (synthetic order >= 3; MADELON), PEAM is the best interpretable
+model and can beat black boxes; where it doesn't (saturated or delocalized
+data), standard methods win. PEAM is a **targeted tool with a precisely
+characterized operating regime**, not a general-purpose SOTA.
 
 ## Reproduce
 
