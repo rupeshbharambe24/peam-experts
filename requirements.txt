@@ -1,0 +1,9 @@
+# Runtime dependencies (tested versions in comments).
+numpy>=2.0            # tested 2.5.4
+pandas>=2.2           # tested 3.1.0
+scipy>=1.13           # tested 1.18.1
+scikit-learn>=1.6     # tested 1.9.1 (uses sklearn.frozen.FrozenEstimator)
+imbalanced-learn>=0.13  # tested 0.14.2
+interpret-core>=0.6   # EBM baseline (ExplainableBoostingClassifier)
+matplotlib>=3.8       # tested 3.11.2
+tabulate>=0.9
