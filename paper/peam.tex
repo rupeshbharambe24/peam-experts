@@ -1,9 +1,13 @@
-\documentclass[11pt]{article}
+\documentclass{article}
+
+% Official TMLR template (tmlr.sty / tmlr.bst / fancyhdr.sty in this folder).
+%   [preprint]            -> named authors, no banner: this is the arXiv-ready form.
+%   \usepackage{tmlr}     -> anonymous, "Under review as submission to TMLR".
+%   [accepted] + \openreview{url} -> camera-ready after acceptance.
+% tmlr.sty already loads natbib, fontenc and lmodern and sets the page geometry.
+\usepackage[preprint]{tmlr}
 
 \usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{multirow}
@@ -11,17 +15,18 @@
 \usepackage{microtype}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
-\usepackage[round]{natbib}
-\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\usepackage{hyperref}
 
 \newcommand{\logit}{\operatorname{logit}}
 \newcommand{\sigm}{\sigma}
 \newcommand{\RR}{\mathbb{R}}
 \newcommand{\EE}{\mathbb{E}}
 
-\title{\textbf{Pattern-Expert Additive Models:\\ Interpretable Classifiers that Win on\\ Localized High-Order Interactions}}
-\author{Rupesh Bharambe\\ \small Independent Researcher \\ \small \texttt{rupeshbharambe2004@gmail.com}}
-\date{\today}
+\title{Pattern-Expert Additive Models: Interpretable Classifiers\\ that Win on Localized High-Order Interactions}
+
+\author{Rupesh Bharambe\\
+Independent Researcher\\
+\texttt{rupeshbharambe2004@gmail.com}}
 
 \begin{document}
 \maketitle
@@ -506,11 +511,12 @@ on its own.
 
 \paragraph{Reproducibility.} The PEAM implementation, the synthetic generator,
 and scripts that regenerate every table (\texttt{run\_interaction\_locality.py},
-\texttt{run\_real\_data\_hunt.py}) are released with the project. All real
-datasets are public and fetched without credentials. Experiments run on CPU.
+\texttt{run\_real\_data\_hunt.py}) are released as open source at
+\url{https://github.com/rupeshbharambe24/peam-experts}. All real datasets are
+public and fetched without credentials. Experiments run on CPU.
 
 \small
-\bibliographystyle{plainnat}
+\bibliographystyle{tmlr}
 \bibliography{refs}
 
 \end{document}
