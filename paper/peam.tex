@@ -1,0 +1,516 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[round]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\newcommand{\logit}{\operatorname{logit}}
+\newcommand{\sigm}{\sigma}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\EE}{\mathbb{E}}
+
+\title{\textbf{Pattern-Expert Additive Models:\\ Interpretable Classifiers that Win on\\ Localized High-Order Interactions}}
+\author{Rupesh Bharambe\\ \small Independent Researcher \\ \small \texttt{rupeshbharambe2004@gmail.com}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Generalized additive models with pairwise interactions (GA2M), such as the
+Explainable Boosting Machine (EBM), are the accuracy leaders among intrinsically
+interpretable models for tabular classification, but they cannot represent
+interactions of order three or higher. Black-box gradient boosting captures such
+interactions yet requires post-hoc, approximate explanations. We study the
+\emph{Pattern-Expert Additive Model} (PEAM), which partitions features into
+groups, fits one calibrated, arbitrarily flexible expert per group, and combines
+the experts additively in log-odds space. Each prediction decomposes
+\emph{exactly} into signed per-group reason codes, with no post-hoc
+approximation; interactions of any order are captured \emph{within} a group,
+while the model stays additive \emph{across} groups. We show --- honestly --- that
+PEAM is not a general-purpose state of the art: on linear, pairwise, saturated,
+or cross-group-interaction data it is matched or beaten by simpler models.
+Instead it occupies a precise and previously uncharted point on the
+accuracy--interpretability frontier. Through a controlled synthetic study that
+sweeps interaction order, and experiments on four public datasets, we
+characterize exactly when PEAM wins: when the predictive signal consists of
+\emph{high-order interactions localized within a known feature grouping}. There,
+PEAM is the best interpretable model and can beat strong black boxes. On the
+MADELON benchmark PEAM attains ROC-AUC $0.90$ versus $0.80$ for EBM and $0.86$
+for full-feature XGBoost; on HIGGS, whose high-order signal is cross-object
+(delocalized), PEAM correctly fails --- a contrast that isolates locality, not
+merely interaction order, as the operative condition. We also show that which
+grouping method succeeds is structure-dependent, and that neither correlation
+nor univariate mutual information is universally adequate.
+\end{abstract}
+
+\section{Introduction}
+
+Tabular classifiers face a persistent tension between accuracy and
+interpretability. At one end, generalized additive models
+\citep{hastie1990gam} and their modern incarnations --- in particular GA2M and
+the Explainable Boosting Machine (EBM) \citep{lou2013ga2m,caruana2015intelligible,nori2019interpretml}
+--- are intrinsically interpretable: every prediction is a sum of univariate shape
+functions and (for GA2M) pairwise interaction terms, each of which can be plotted
+and audited. At the other end, gradient-boosted tree ensembles
+\citep{chen2016xgboost,ke2017lightgbm} achieve higher accuracy by modelling
+interactions of arbitrary order, but they are black boxes whose explanations must
+be reconstructed post hoc with methods such as SHAP \citep{lundberg2017shap} or
+LIME \citep{ribeiro2016lime}, which are approximate and can be unfaithful to the
+underlying model.
+
+A structural limitation sits at the heart of this trade-off: GA2M, by
+construction, is additive in main effects and \emph{pairwise} interactions. It
+\emph{cannot} represent a genuine third- or higher-order interaction. When the
+label depends on such an interaction, GA2M is misspecified and a black box wins
+--- but then interpretability is lost. This motivates a simple question:
+\emph{is there an intrinsically interpretable model that captures high-order
+interactions exactly where they occur, while producing faithful attributions?}
+
+We study one answer, the \textbf{Pattern-Expert Additive Model (PEAM)}. PEAM
+partitions the features into $K$ groups, fits a single calibrated but otherwise
+\emph{arbitrarily flexible} expert on each group, and combines the experts in
+log-odds (evidence) space:
+\begin{equation}
+\logit\, p(x) \;=\; b_0 \;+\; \sum_{k=1}^{K} \beta_k\,\big[\logit e_k(x_{G_k}) - \logit \pi\big],
+\label{eq:peam-intro}
+\end{equation}
+where $e_k$ is the group-$k$ expert and $\pi$ the base rate. Because the
+combination is additive, every prediction decomposes \emph{exactly} into signed
+per-group reason codes $r_k = \beta_k[\logit e_k - \logit \pi]$ that sum to the
+decision log-odds --- no post-hoc approximation. Because each expert is
+unconstrained, interactions of \emph{any} order are captured \emph{within} a
+group; because the experts are combined additively, the model assumes no
+interaction \emph{across} groups.
+
+Our central message is deliberately honest and double-edged. PEAM is
+\textbf{not} a general-purpose state of the art. On data that is linear,
+dominated by pairwise interactions, near-separable, or whose interactions span
+groups, PEAM is matched or beaten by logistic regression, by EBM, or by a black
+box. What PEAM offers is a \emph{new, precisely characterizable} operating
+regime: when the predictive signal is composed of \emph{high-order interactions
+that are localized within a known grouping}, PEAM's inductive bias is exactly
+right, and it becomes the best interpretable model --- at times beating even
+black boxes, because its structure additionally performs implicit structured
+feature selection. We make this precise.
+
+\paragraph{Contributions.}
+\begin{itemize}
+\item We formalize PEAM (Section~\ref{sec:method}): a group-additive classifier
+with flexible, calibrated per-group experts and exact additive log-odds reason
+codes, and we state the inductive bias it encodes.
+\item We give a specification analysis (Section~\ref{sec:when}) identifying the
+regime in which PEAM is well-specified and GA2M is not, and the regime
+(cross-group interactions) in which PEAM is misspecified.
+\item We verify the analysis with a controlled synthetic study
+(Section~\ref{sec:synthetic}) that sweeps interaction order and sample size: at
+order $\geq 3$ PEAM is the single best model, beating EBM and strong, tuned
+black boxes from $n{=}2$k to $n{=}80$k.
+\item We map where the regime occurs in public data
+(Section~\ref{sec:real}). On MADELON \citep{guyon2003madelon} PEAM is the best
+interpretable model and beats full-feature black boxes; on HIGGS
+\citep{baldi2014higgs} its high-order-but-delocalized signal makes PEAM fail, as
+predicted; on saturated / low-order data (satimage, gas-drift) standard methods
+win.
+\item We show that the adequacy of a grouping is structure-dependent
+(Section~\ref{sec:grouping}): correlation grouping succeeds exactly when the
+interacting features are mutually correlated and fails otherwise, and univariate
+mutual information fails on jointly-informative features.
+\end{itemize}
+
+All code, synthetic generators, and scripts to reproduce every number in this
+paper are released with the project.
+
+\section{Related work}
+
+\paragraph{Additive and glass-box models.} GAMs \citep{hastie1990gam} model the
+log-odds as a sum of univariate shape functions. GA2M \citep{lou2013ga2m} adds a
+controlled number of pairwise terms, and the Explainable Boosting Machine
+\citep{caruana2015intelligible,nori2019interpretml} is its widely-used
+gradient-boosted realization and our primary interpretable baseline. Neural
+additive models \citep{agarwal2021nam} replace the shape functions with neural
+networks but retain additivity in main (and optionally pairwise) effects. All of
+these are, by design, limited to low-order interactions. PEAM departs by being
+additive across \emph{groups} of features while placing an unconstrained learner
+\emph{within} each group, trading per-feature shape plots for group-level reason
+codes in exchange for arbitrary within-group interaction order.
+
+\paragraph{Mixtures of experts.} PEAM's experts echo the mixture-of-experts
+lineage \citep{jacobs1991moe}, but classical MoE uses a learned \emph{gate} to
+select experts per input, which obscures attribution. PEAM instead assigns
+experts to fixed feature groups and combines them additively, so that the
+contribution of each expert is an exact, globally-consistent reason code. Recent
+work on interpretable MoE \citep{ismail2023interpretable_moe} shares the goal of
+transparent expert combination; our combiner is a transparent linear model in
+log-odds space.
+
+\paragraph{Log-odds attributions and faithfulness.} Working in log-odds (the
+natural additive scale for a logistic model) connects PEAM to recent arguments
+for additive evidence in interpretable modelling \citep{dervovic2022logodds}.
+Unlike SHAP \citep{lundberg2017shap} and LIME \citep{ribeiro2016lime}, whose
+attributions approximate a fixed black box and can disagree with it, PEAM's
+reason codes are \emph{definitional}: they are the terms of the model's own
+decision function and sum to it exactly.
+
+\section{The Pattern-Expert Additive Model}
+\label{sec:method}
+
+\paragraph{Setup.} Let $x \in \RR^d$ with binary label $y \in \{0,1\}$ and base
+rate $\pi = \Pr(y{=}1)$. Fix a partition of the feature indices into $K$ groups
+$G_1,\dots,G_K$ (disjoint, covering all features). Write $x_{G_k}$ for the
+sub-vector of features in group $k$, and let $\sigm$ be the logistic function and
+$\logit = \sigm^{-1}$.
+
+\paragraph{Experts.} For each group we fit a calibrated expert
+$e_k : \RR^{|G_k|} \to (0,1)$ estimating $\Pr(y{=}1 \mid x_{G_k})$. In this paper
+each expert is a histogram gradient-boosted tree trained on the training split
+and calibrated by Platt scaling \citep{platt1999calibration} on a held-out
+validation split, so that it reports a probability without leakage from the
+calibration data into the base fit. Any model class can serve as an expert; the
+only requirement is a calibrated probability.
+
+\paragraph{Evidence and combiner.} Define the group evidence
+\begin{equation}
+z_k(x) \;=\; \logit e_k(x_{G_k}) \;-\; \logit \pi,
+\end{equation}
+i.e. how much group $k$ moves the log-odds away from the prior. PEAM combines
+evidence linearly,
+\begin{equation}
+\logit\, p(x) \;=\; b_0 + \sum_{k=1}^K \beta_k\, z_k(x),
+\label{eq:peam}
+\end{equation}
+with $(\beta_k, b_0)$ fit by logistic regression on the validation split
+(the \emph{logistic} combiner). A parameter-free \emph{naive} variant sets
+$\beta_k{=}1$ and $b_0 = \logit \pi$, recovering a naive-Bayes-style addition of
+evidence.
+
+\paragraph{Reason codes.} The per-group reason code is
+\begin{equation}
+r_k(x) \;=\; \beta_k\, z_k(x), \qquad \logit\, p(x) = b_0 + \sum_{k=1}^K r_k(x).
+\end{equation}
+This decomposition is \emph{exact by construction}: the reason codes are the
+summands of the model's own decision function, not an approximation of it. A
+positive $r_k$ is signed evidence from group $k$ for the positive class; the
+global importance of a group is $\EE\,|r_k|$. Groups can be switched off
+(drop $r_k$) for deployment in settings that lack a feature group, giving a
+form of modular portability.
+
+\begin{algorithm}[t]
+\caption{PEAM training (logistic combiner)}
+\label{alg:peam}
+\begin{algorithmic}[1]
+\Require train $(X^{tr},y^{tr})$, validation $(X^{val},y^{val})$, groups $\{G_k\}$
+\State $\pi \gets \operatorname{mean}(y^{tr})$
+\For{$k = 1,\dots,K$}
+  \State fit base learner on $(X^{tr}_{G_k}, y^{tr})$
+  \State calibrate it on $(X^{val}_{G_k}, y^{val})$ to obtain expert $e_k$
+\EndFor
+\State form evidence matrix $Z^{val}$ with $Z^{val}_{ik} = \logit e_k(x^{val}_{i,G_k}) - \logit\pi$
+\State fit logistic regression of $y^{val}$ on $Z^{val}$ to obtain $(\beta, b_0)$
+\State \Return $\{e_k\}, \beta, b_0, \pi$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Properties.} (i) \emph{Exact additivity} of reason codes, as above.
+(ii) \emph{Arbitrary within-group interaction order}: each $e_k$ may model any
+interaction among the features of its group. (iii) \emph{Across-group additivity}:
+Eq.~\eqref{eq:peam} assumes no interaction between groups --- this is PEAM's
+inductive bias and, as we show, both its strength and its failure mode.
+(iv) \emph{Calibration}: per-expert calibration plus a logistic combiner yields
+well-calibrated probabilities (Section~\ref{sec:interp}).
+
+\section{When does PEAM win?}
+\label{sec:when}
+
+Suppose the true conditional log-odds decomposes as
+\begin{equation}
+\logit \Pr(y{=}1\mid x) \;=\; c_0 + \sum_{k=1}^K f_k(x_{G_k}),
+\label{eq:truth}
+\end{equation}
+i.e. it is additive \emph{across} the groups $\{G_k\}$ but each $f_k$ is an
+arbitrary function of its group. Then:
+\begin{itemize}
+\item \textbf{PEAM is well-specified.} With a sufficiently flexible expert per
+group, $e_k$ can match $f_k$ up to calibration, and the additive combiner in
+Eq.~\eqref{eq:peam} matches the across-group structure. PEAM can represent
+Eq.~\eqref{eq:truth} regardless of the \emph{order} of each $f_k$.
+\item \textbf{GA2M / EBM is misspecified} whenever some $f_k$ contains a genuine
+interaction of order $\geq 3$: its hypothesis class (main effects plus pairwise
+terms) cannot express a third-order term, so it incurs irreducible approximation
+error no matter how much data it sees.
+\item \textbf{Linear models are misspecified} whenever any $f_k$ is nonlinear.
+\end{itemize}
+Conversely, if the truth contains interactions that \emph{cross} groups --- a term
+depending jointly on features from $G_j$ and $G_k$ --- then PEAM's across-group
+additivity (iii) is violated and PEAM is itself misspecified, while a black box
+or even GA2M (through a cross-group pairwise term) may do better. Hence the
+operative condition is not high interaction order alone but
+\emph{high order \textbf{and} locality}: the interactions must live inside the
+groups. We test both halves of this prediction below.
+
+A second mechanism matters in practice. When many features are pure noise and
+the informative features fall in one group, the logistic combiner drives the
+noise groups' weights $\beta_k \to 0$, so PEAM performs \emph{implicit structured
+feature selection}. This lets PEAM beat a monolithic black box that must find the
+informative subset among all features --- a point borne out on MADELON.
+
+\section{Controlled study: sweeping interaction order}
+\label{sec:synthetic}
+
+\paragraph{Generator.} We generate data in which the per-group signal is a
+\emph{pure} order-$r$ interaction. For $K$ groups of $m$ features each, draw all
+features i.i.d.\ $\mathcal N(0,1)$ (independent within and across groups) and set
+\begin{equation}
+z_k = \operatorname{standardize}\Big(\textstyle\prod_{j=1}^{r} x_{k,j}\Big), \qquad
+\logit p = b + \sum_{k=1}^K w\, z_k, \qquad y \sim \text{Bernoulli}(\sigm(\logit p)),
+\end{equation}
+with $b$ solved to fix the positive rate (we use $10\%$). A product of $r$
+independent mean-zero variables has zero correlation with any single feature and
+with any lower-order product of its own factors, so the signal requires modelling
+the \emph{full} order-$r$ interaction; the log-odds is additive across groups by
+construction, so Eq.~\eqref{eq:truth} holds exactly. We add pure-noise features
+to make grouping non-trivial.
+
+\paragraph{Setup.} $K{=}4$ groups of $4$ features, $6$ noise features,
+$10\%$ positives, stratified $60/20/20$ train/validation/test, three seeds. We
+compare logistic regression, EBM (the interpretable baseline), PEAM with the true
+grouping, and a black-box histogram GBM. Experts and the GBM use comparable
+capacity.
+
+\begin{table}[t]
+\centering
+\caption{Synthetic interaction-order sweep ($K{=}4$ groups, $10\%$ positives,
+mean over 3 seeds). PEAM uses the true grouping. \texttt{gbm} is the
+non-interpretable black-box reference; all others are interpretable.}
+\label{tab:order}
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{4}{c}{ROC-AUC} \\
+\cmidrule(lr){2-5}
+interaction order & logreg & EBM & \textbf{PEAM} & gbm (black box) \\
+\midrule
+1 (linear)                 & 0.936 & 0.930 & 0.868 & 0.918 \\
+2 (pairwise)               & 0.515 & 0.908 & 0.856 & 0.890 \\
+3 (localized high-order)   & 0.485 & 0.668 & \textbf{0.795} & 0.731 \\
+4 (localized high-order)   & 0.522 & 0.679 & \textbf{0.685} & 0.637 \\
+\midrule
+ & \multicolumn{4}{c}{PR-AUC} \\
+\cmidrule(lr){2-5}
+1 & 0.686 & 0.667 & 0.497 & 0.619 \\
+2 & 0.121 & 0.618 & 0.472 & 0.555 \\
+3 & 0.104 & 0.183 & \textbf{0.418} & 0.312 \\
+4 & 0.128 & 0.179 & \textbf{0.254} & 0.166 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Result (Table~\ref{tab:order}).} There is a clean crossover. At order
+$1$ the truth is linear and logistic regression and EBM win; PEAM's flexible
+experts are unnecessary overhead. At order $2$ the truth is exactly GA2M's design
+point and EBM wins. At order $\geq 3$ EBM saturates --- it cannot represent the
+interaction --- while PEAM with the true grouping becomes the \emph{single best
+model, above the black box}, on both ROC-AUC and PR-AUC, because its inductive
+bias (across-group additivity, free within-group order) matches the data exactly
+whereas the black box must discover the group structure from limited data.
+
+\paragraph{Robustness.} Is PEAM's edge over the black box a tuning or
+small-sample artifact? Table~\ref{tab:nsweep} fixes order $3$ and gives the black
+boxes every advantage: a strong early-stopped histogram GBM and XGBoost, across
+sample sizes. PEAM leads at every $n$. The black box closes the gap as $n$ grows
+(it eventually learns the block structure) but never overtakes the model that is
+told it; EBM never catches up because order-3 terms lie outside its hypothesis
+class.
+
+\begin{table}[t]
+\centering
+\caption{Order-3 robustness (ROC-AUC, mean over 3 seeds). PEAM uses the true
+grouping; the black boxes are strong and tuned (HistGBM: 2000 trees, early
+stopping; XGBoost: 1500 trees, depth 6).}
+\label{tab:nsweep}
+\begin{tabular}{lrrrr}
+\toprule
+$n$ & \textbf{PEAM} & EBM & HistGBM (strong) & XGBoost \\
+\midrule
+2{,}000  & \textbf{0.651} & 0.636 & 0.603 & 0.622 \\
+8{,}000  & \textbf{0.795} & 0.668 & 0.733 & 0.717 \\
+30{,}000 & \textbf{0.884} & 0.725 & 0.856 & 0.845 \\
+80{,}000 & \textbf{0.905} & 0.746 & 0.889 & 0.886 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Real-data study: where the regime occurs}
+\label{sec:real}
+
+We now ask whether the regime arises in public data. Table~\ref{tab:real}
+summarizes four datasets chosen to span the possibilities; we describe the
+grouping used for each.
+
+\begin{table}[t]
+\centering
+\caption{Real-data hunt (ROC-AUC, mean over 3 seeds). \texttt{peam\_*} are
+interpretable; \texttt{xgb\_*} is the black-box reference. Groupings are
+domain-defined except where noted.}
+\label{tab:real}
+\begin{tabular}{llr}
+\toprule
+dataset & model & ROC-AUC \\
+\midrule
+\multirow{3}{*}{satimage (9 px $\times$ 4 bands)}
+ & EBM & \textbf{0.961} \\
+ & PEAM (semantic groups) & 0.948 \\
+ & PEAM (correlation groups) & 0.941 \\
+\midrule
+\multirow{3}{*}{gas-drift (16 sensors $\times$ 8)}
+ & logistic regression & 0.999 \\
+ & EBM & 1.000 \\
+ & PEAM (semantic groups) & 0.999 \\
+\midrule
+\multirow{4}{*}{HIGGS (per-object kinematics)}
+ & EBM (low-level only) & \textbf{0.674} \\
+ & PEAM (per-object groups) & 0.608 \\
+ & XGBoost (low-level only) & 0.680 \\
+ & EBM (with cross-object masses) & 0.796 \\
+\midrule
+\multirow{6}{*}{MADELON (5 informative + noise)}
+ & EBM (full) & 0.800 \\
+ & XGBoost (full) & 0.857 \\
+ & \textbf{PEAM (correlation groups, full)} & \textbf{0.903} \\
+ & EBM (shared feature selection) & 0.885 \\
+ & XGBoost (shared feature selection) & 0.927 \\
+ & \textbf{PEAM (shared feature selection)} & \textbf{0.912} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{MADELON: a localized high-order win.} MADELON
+\citep{guyon2003madelon} has $500$ features, of which only $5$ are informative ---
+placed on the vertices of a five-dimensional hypercube, so the class is defined
+by a five-way interaction --- plus $15$ redundant features (random linear
+combinations of the $5$) and $480$ noise probes. This is precisely a localized
+high-order interaction embedded in noise. PEAM with correlation grouping
+(Section~\ref{sec:grouping}) attains ROC-AUC $0.903$, beating EBM ($0.800$) and
+full-feature XGBoost ($0.857$); it is the best interpretable model by a wide
+margin and the best model overall \emph{except} for a black box equipped with a
+separate feature-selection stage. To test fairness we gave every model the same
+ExtraTrees-importance feature selection ($\approx 14$ features): even then PEAM
+($0.912$) beats EBM ($0.885$), because selection removes noise but does not grant
+EBM the fifth-order term it structurally lacks. Only the select-then-boost
+black-box pipeline ($0.927$) edges PEAM --- at the cost of interpretability and an
+extra stage. The win is stable: over five seeds PEAM averages $0.895$
+(range $[0.863, 0.936]$) versus EBM $0.795$, Random Forest $0.768$, and
+ExtraTrees $0.747$.
+
+\paragraph{HIGGS: high-order but delocalized --- the contrast.} HIGGS
+\citep{baldi2014higgs} is the canonical example of a dataset whose high-order
+structure defeats additive models. Its $21$ low-level features are per-object
+kinematics (lepton, missing energy, four jets); its $7$ high-level features are
+\emph{invariant masses} that combine \emph{multiple} objects. Grouping by object
+and applying PEAM to the low-level features gives ROC-AUC $0.608$, \emph{below}
+EBM's $0.674$: the discriminative interactions cross object boundaries, violating
+PEAM's across-group additivity. The point is sharpened by the last row: adding
+the seven cross-object mass features lifts EBM from $0.674$ to $0.796$. HIGGS has
+high-order signal, but it is \emph{delocalized}, so PEAM fails exactly as the
+analysis in Section~\ref{sec:when} predicts. Locality, not interaction order
+alone, is what PEAM requires.
+
+\paragraph{satimage and gas-drift: not in the regime.} On satimage (remote
+sensing; a $3{\times}3$ pixel neighbourhood over $4$ spectral bands) EBM already
+reaches $0.961$ and PEAM with the genuine pixel/band grouping is slightly behind:
+the signal is well captured by additive and pairwise terms. On gas-drift
+($16$ chemical sensors $\times 8$ descriptors) every model, including logistic
+regression, exceeds $0.99$ --- the task is near-separable, leaving no interaction
+headroom. These are the common case for engineered tabular features, and they are
+\emph{not} where PEAM helps.
+
+\section{Which grouping works?}
+\label{sec:grouping}
+
+PEAM requires a grouping that places the interacting features together. We find
+that the adequacy of a grouping is \emph{structure-dependent}, and that no single
+automatic method is universal.
+\begin{itemize}
+\item \textbf{Correlation grouping} (hierarchical clustering on
+$|\text{Spearman}|$) recovers the interacting set exactly when those features are
+mutually correlated. On MADELON the $15$ redundant features are linear
+combinations of the $5$ informative ones, so the useful set forms a correlated
+cluster and correlation grouping isolates it from the $480$ noise probes --- which
+is why PEAM wins there. In the synthetic generator, by contrast, the interacting
+features are independent products with \emph{zero} pairwise correlation, so
+correlation grouping cannot find them and PEAM with correlation (or random)
+grouping collapses to near the additive baseline.
+\item \textbf{Univariate mutual information} fails on jointly-informative
+features: a pure high-order interaction has (near) zero marginal mutual
+information with the label, so ranking features by univariate MI --- the classic
+``MADELON trap'' --- selects the wrong features and PEAM gains nothing.
+\end{itemize}
+The practical consequence is that PEAM is most readily deployed when a grouping
+is given by domain knowledge, and that \emph{interaction-aware} group discovery
+(rather than correlation or marginal association) is the right open problem for
+making PEAM automatic.
+
+\section{Interpretability and calibration}
+\label{sec:interp}
+
+PEAM's reason codes are exact (Section~\ref{sec:method}); we also check that they
+are \emph{faithful} and that the model is \emph{calibrated}. On a suite of
+imbalanced public datasets, zeroing the evidence of the single most important
+group at test time drops ROC-AUC by $\approx 0.14$ on average, confirming that
+the reason codes identify genuine drivers rather than redundant signal. PEAM's
+expected calibration error ($\approx 0.014$) is essentially tied with EBM's, the
+best among the models we test, as a consequence of per-expert Platt calibration
+followed by the logistic combiner \citep{platt1999calibration,guo2017calibration}.
+Interpretability is at the \emph{group} level: PEAM reports which group drove a
+decision and by how much, exactly, but --- unlike EBM's per-feature shape
+functions --- it does not resolve attribution \emph{within} a group, whose expert
+is a local black box. This is the representational price of capturing
+within-group high-order interactions.
+
+\section{Limitations}
+\label{sec:limits}
+
+We state the boundaries of the contribution plainly. (i) PEAM requires a grouping
+that captures the interacting features; obtaining one automatically is unsolved
+(Section~\ref{sec:grouping}). (ii) PEAM is dominated on linear, pairwise,
+saturated, or cross-group-interaction data --- a large fraction of real tabular
+problems. (iii) A black box combined with a separate feature-selection stage can
+exceed PEAM even in its favourable regime (MADELON: $0.927$ vs $0.912$), trading
+interpretability for a small accuracy gain. (iv) Interpretability is group-level,
+not per-feature. PEAM is therefore best understood as a targeted instrument for a
+specific, identifiable regime, not a replacement for GA2M or gradient boosting in
+general.
+
+\section{Conclusion}
+
+We introduced PEAM, a group-additive classifier with flexible, calibrated
+per-group experts and exact additive log-odds reason codes, and we characterized
+--- honestly, including where it loses --- a previously uncharted point on the
+accuracy--interpretability frontier. When the predictive signal consists of
+high-order interactions localized within a known grouping, PEAM is the best
+interpretable model and can beat strong black boxes; we demonstrated this in a
+controlled order-sweep and on the MADELON benchmark, and we showed via HIGGS that
+locality, not interaction order alone, is the operative condition. The natural
+next step is interaction-aware group discovery, which would turn PEAM from a
+model that \emph{exploits} a known grouping into one that \emph{finds} the regime
+on its own.
+
+\paragraph{Reproducibility.} The PEAM implementation, the synthetic generator,
+and scripts that regenerate every table (\texttt{run\_interaction\_locality.py},
+\texttt{run\_real\_data\_hunt.py}) are released with the project. All real
+datasets are public and fetched without credentials. Experiments run on CPU.
+
+\small
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

@@ -15,3 +15,11 @@ venv/
 
 # large/plot artifacts (keep committed result tables under results/)
 figures/*.png
+
+# latex build artifacts
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.xdv
+paper/*.bbl
+paper/*.blg
